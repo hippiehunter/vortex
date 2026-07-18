@@ -5,9 +5,11 @@ use std::rc::Rc;
 use std::rc::Weak as RcWeak;
 use std::sync::Arc;
 
+use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::future::RemoteHandle;
 use futures::stream::LocalBoxStream;
 use parking_lot::Mutex;
 use smol::LocalExecutor;
@@ -34,6 +36,25 @@ impl Default for SingleThreadRuntime {
         let executor = Rc::new(LocalExecutor::new());
         let sender = Arc::new(Sender::new(&executor));
         Self { sender, executor }
+    }
+}
+
+impl SingleThreadRuntime {
+    /// Spawns a `!Send` future on this runtime and returns a `Send` completion handle.
+    ///
+    /// The future itself remains owned and polled by this runtime's local executor. Only its
+    /// output crosses the completion handle, so callers can satisfy APIs that require a `Send`
+    /// future without asserting that the underlying work is safe to move between threads.
+    /// Dropping the handle cancels the local future and schedules its destruction on this
+    /// executor.
+    pub fn spawn_local<Fut>(&self, future: Fut) -> RemoteHandle<Fut::Output>
+    where
+        Fut: Future + 'static,
+        Fut::Output: Send + 'static,
+    {
+        let (remote, handle) = future.remote_handle();
+        self.executor.spawn(remote).detach();
+        handle
     }
 }
 
@@ -259,9 +280,12 @@ impl<T> Iterator for SingleThreadIterator<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::thread::ThreadId;
 
     use futures::FutureExt;
 
@@ -289,5 +313,53 @@ mod tests {
         });
 
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_spawn_local_future_returns_send_handle() {
+        fn assert_send<T: Send>(_: &T) {}
+
+        let runtime = SingleThreadRuntime::default();
+        let owner = std::thread::current().id();
+        let local = Rc::new(());
+        let captured = Rc::clone(&local);
+        let handle = runtime.spawn_local(async move {
+            drop(captured);
+            std::thread::current().id()
+        });
+
+        assert_send(&handle);
+        assert_eq!(runtime.block_on(handle), owner);
+        assert_eq!(Rc::strong_count(&local), 1);
+    }
+
+    #[test]
+    fn test_spawn_local_cancellation_drops_on_runtime_thread() {
+        struct DropThread(Rc<Cell<Option<ThreadId>>>);
+
+        impl Drop for DropThread {
+            fn drop(&mut self) {
+                self.0.set(Some(std::thread::current().id()));
+            }
+        }
+
+        let runtime = SingleThreadRuntime::default();
+        let owner = std::thread::current().id();
+        let dropped_on = Rc::new(Cell::new(None));
+        let witness = DropThread(Rc::clone(&dropped_on));
+        let handle = runtime.spawn_local(async move {
+            let _witness = witness;
+            std::future::pending::<()>().await;
+        });
+
+        assert!(std::thread::spawn(move || drop(handle)).join().is_ok());
+        for _ in 0..8 {
+            if dropped_on.get().is_some() {
+                break;
+            }
+            assert!(runtime.executor.try_tick());
+        }
+
+        assert_eq!(dropped_on.get(), Some(owner));
     }
 }

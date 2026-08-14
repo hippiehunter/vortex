@@ -290,6 +290,13 @@ impl VortexWriteOptions {
 
         let (layout, segment_specs) = layout_fut.await?;
 
+        // Big-endian hosts write buffers in their native byte order (recorded per serialized
+        // array). Wrapping the root in the `vortex.big_endian` tripwire layout makes readers
+        // that predate the endianness tag fail loudly instead of silently misreading buffers.
+        #[cfg(target_endian = "big")]
+        let layout =
+            vortex_layout::layouts::big_endian::BigEndianLayout::wrap(layout).into_layout();
+
         // Assemble the Footer object now that we have all the segments.
         let statistics = if self.file_statistics.is_empty() {
             None

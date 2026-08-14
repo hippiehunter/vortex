@@ -8,3 +8,13 @@
 #   VORTEX_SIBLING_ONPAIR=/home/jeff/repos/onpair
 [build.env]
 volumes = ["VORTEX_SIBLING_FSST", "VORTEX_SIBLING_ONPAIR"]
+
+[target.s390x-unknown-linux-gnu]
+# Ubuntu 20.04-based image: the default release image ships libclang 3.8,
+# which is too old for the bindgen run in custom-labels' build script.
+image = "ghcr.io/cross-rs/s390x-unknown-linux-gnu:main"
+pre-build = [
+    # libclang: the bindgen run in custom-labels' build script.
+    # tzdata: jiff needs /usr/share/zoneinfo for zoned-timestamp tests.
+    "apt-get update && apt-get install -y --no-install-recommends libclang-dev clang tzdata",
+]

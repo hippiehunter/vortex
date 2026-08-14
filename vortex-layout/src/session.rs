@@ -11,6 +11,7 @@ use vortex_session::registry::Id;
 
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
+use crate::layouts::big_endian::BigEndian;
 use crate::layouts::chunked::Chunked;
 use crate::layouts::dict::Dict;
 use crate::layouts::flat::Flat;
@@ -55,6 +56,7 @@ impl Default for LayoutSession {
         };
 
         // Register the built-in layout encodings.
+        this.register(&BigEndian as &dyn LayoutEncoding);
         this.register(&Chunked as &dyn LayoutEncoding);
         this.register(&Flat as &dyn LayoutEncoding);
         this.register(&Struct as &dyn LayoutEncoding);

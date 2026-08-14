@@ -41,6 +41,21 @@ in [Vortex Layouts](/concepts/layouts).
 The file format begins and ends with the 4-byte magic number `VTXF`.
 Immediately prior to the trailing magic number are two 16-bit integers: the version tag and the length of the postscript.
 
+### Byte Order
+
+All hand-written integers in the file structure (the version tag and postscript length above, and the
+flatbuffer length suffix on serialized arrays) are little-endian, and all structured metadata
+(FlatBuffers and Protobuf) defines its own byte order, so file metadata parses identically on every
+architecture.
+
+Array data buffers are written in the **writer's native byte order**, which each serialized array
+records in the `endianness` field of its `Array` flatbuffer. An absent field means little-endian —
+which is what every file written before the field existed contains. Readers on a host of the
+opposite byte order byte-swap buffers as they decode; same-order reads are zero-copy. Files written
+by big-endian hosts additionally wrap their root layout in the `vortex.big_endian` layout encoding,
+so readers that predate the endianness field fail with an unknown-layout error instead of silently
+misreading buffers.
+
 Notably, this minimal notion of a Vortex file effectively includes only the byte ranges, alignment, encryption, and compression
 configurations for other pieces of metadata.
 

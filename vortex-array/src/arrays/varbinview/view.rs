@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 
-use static_assertions::assert_eq_align;
 use static_assertions::assert_eq_size;
 use vortex_error::VortexExpect;
 
@@ -30,7 +29,11 @@ pub union BinaryView {
     pub(crate) _ref: Ref,
 }
 
-assert_eq_align!(BinaryView, u128);
+// The 16-byte alignment is declared on the type above. Comparing it against
+// `u128` does not express that invariant portably: `u128` is 16-byte aligned on
+// x86-64 and aarch64 but 8-byte aligned on s390x, where the assertion fails to
+// compile even though `BinaryView` is still correctly aligned.
+const _: () = assert!(align_of::<BinaryView>() == 16);
 assert_eq_size!(BinaryView, [u8; 16]);
 assert_eq_size!(Inlined, [u8; 16]);
 assert_eq_size!(Ref, [u8; 16]);
@@ -287,18 +290,20 @@ impl From<Ref> for BinaryView {
     }
 }
 
+// Equality and hashing go through `as_u128`, which reads the bytes as
+// little-endian. Transmuting to `&u128` instead would reinterpret them in the
+// platform's byte order, so two hosts of different endianness would order and
+// hash the same view differently.
 impl PartialEq for BinaryView {
     fn eq(&self, other: &Self) -> bool {
-        let a = unsafe { std::mem::transmute::<&BinaryView, &u128>(self) };
-        let b = unsafe { std::mem::transmute::<&BinaryView, &u128>(other) };
-        a == b
+        self.as_u128() == other.as_u128()
     }
 }
 impl Eq for BinaryView {}
 
 impl Hash for BinaryView {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        unsafe { std::mem::transmute::<&BinaryView, &u128>(self) }.hash(state);
+        self.as_u128().hash(state);
     }
 }
 

@@ -4,6 +4,91 @@ extern crate alloc;
 
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MIN_ENDIANNESS: u8 = 0;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+pub const ENUM_MAX_ENDIANNESS: u8 = 1;
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
+#[allow(non_camel_case_types)]
+pub const ENUM_VALUES_ENDIANNESS: [Endianness; 2] = [
+  Endianness::Little,
+  Endianness::Big,
+];
+
+/// The byte order of an array's data buffers.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct Endianness(pub u8);
+#[allow(non_upper_case_globals)]
+impl Endianness {
+  pub const Little: Self = Self(0);
+  pub const Big: Self = Self(1);
+
+  pub const ENUM_MIN: u8 = 0;
+  pub const ENUM_MAX: u8 = 1;
+  pub const ENUM_VALUES: &'static [Self] = &[
+    Self::Little,
+    Self::Big,
+  ];
+  /// Returns the variant's name or "" if unknown.
+  pub fn variant_name(self) -> Option<&'static str> {
+    match self {
+      Self::Little => Some("Little"),
+      Self::Big => Some("Big"),
+      _ => None,
+    }
+  }
+}
+impl ::core::fmt::Debug for Endianness {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    if let Some(name) = self.variant_name() {
+      f.write_str(name)
+    } else {
+      f.write_fmt(format_args!("<UNKNOWN {:?}>", self.0))
+    }
+  }
+}
+impl<'a> ::flatbuffers::Follow<'a> for Endianness {
+  type Inner = Self;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    let b = unsafe { ::flatbuffers::read_scalar_at::<u8>(buf, loc) };
+    Self(b)
+  }
+}
+
+impl ::flatbuffers::Push for Endianness {
+    type Output = Endianness;
+    #[inline]
+    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
+        unsafe { ::flatbuffers::emplace_scalar::<u8>(dst, self.0) };
+    }
+}
+
+impl ::flatbuffers::EndianScalar for Endianness {
+  type Scalar = u8;
+  #[inline]
+  fn to_little_endian(self) -> u8 {
+    self.0.to_le()
+  }
+  #[inline]
+  #[allow(clippy::wrong_self_convention)]
+  fn from_little_endian(v: u8) -> Self {
+    let b = u8::from_le(v);
+    Self(b)
+  }
+}
+
+impl<'a> ::flatbuffers::Verifiable for Endianness {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    u8::run_verifier(v, pos)
+  }
+}
+
+impl ::flatbuffers::SimpleToVerifyInSlice for Endianness {}
+#[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_COMPRESSION: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MAX_COMPRESSION: u8 = 1;
@@ -388,6 +473,7 @@ impl<'a> ::flatbuffers::Follow<'a> for Array<'a> {
 impl<'a> Array<'a> {
   pub const VT_ROOT: ::flatbuffers::VOffsetT = 4;
   pub const VT_BUFFERS: ::flatbuffers::VOffsetT = 6;
+  pub const VT_ENDIANNESS: ::flatbuffers::VOffsetT = 8;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -401,6 +487,7 @@ impl<'a> Array<'a> {
     let mut builder = ArrayBuilder::new(_fbb);
     if let Some(x) = args.buffers { builder.add_buffers(x); }
     if let Some(x) = args.root { builder.add_root(x); }
+    builder.add_endianness(args.endianness);
     builder.finish()
   }
 
@@ -421,6 +508,16 @@ impl<'a> Array<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, Buffer>>>(Array::VT_BUFFERS, None)}
   }
+  /// The byte order of the data buffers. Writers record their native byte order; readers on a
+  /// host of the opposite byte order must byte-swap buffers as they decode. Absent means
+  /// little-endian, which is what every file written before this field existed contains.
+  #[inline]
+  pub fn endianness(&self) -> Endianness {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<Endianness>(Array::VT_ENDIANNESS, Some(Endianness::Little)).unwrap()}
+  }
 }
 
 impl ::flatbuffers::Verifiable for Array<'_> {
@@ -431,6 +528,7 @@ impl ::flatbuffers::Verifiable for Array<'_> {
     v.visit_table(pos)?
      .visit_field::<::flatbuffers::ForwardsUOffset<ArrayNode>>("root", Self::VT_ROOT, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, Buffer>>>("buffers", Self::VT_BUFFERS, false)?
+     .visit_field::<Endianness>("endianness", Self::VT_ENDIANNESS, false)?
      .finish();
     Ok(())
   }
@@ -438,6 +536,7 @@ impl ::flatbuffers::Verifiable for Array<'_> {
 pub struct ArrayArgs<'a> {
     pub root: Option<::flatbuffers::WIPOffset<ArrayNode<'a>>>,
     pub buffers: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, Buffer>>>,
+    pub endianness: Endianness,
 }
 impl<'a> Default for ArrayArgs<'a> {
   #[inline]
@@ -445,6 +544,7 @@ impl<'a> Default for ArrayArgs<'a> {
     ArrayArgs {
       root: None,
       buffers: None,
+      endianness: Endianness::Little,
     }
   }
 }
@@ -461,6 +561,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> ArrayBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_buffers(&mut self, buffers: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , Buffer>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Array::VT_BUFFERS, buffers);
+  }
+  #[inline]
+  pub fn add_endianness(&mut self, endianness: Endianness) {
+    self.fbb_.push_slot::<Endianness>(Array::VT_ENDIANNESS, endianness, Endianness::Little);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> ArrayBuilder<'a, 'b, A> {
@@ -482,6 +586,7 @@ impl ::core::fmt::Debug for Array<'_> {
     let mut ds = f.debug_struct("Array");
       ds.field("root", &self.root());
       ds.field("buffers", &self.buffers());
+      ds.field("endianness", &self.endianness());
       ds.finish()
   }
 }

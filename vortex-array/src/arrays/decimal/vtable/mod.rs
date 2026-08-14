@@ -24,9 +24,9 @@ use crate::builders::ArrayBuilder;
 use crate::builders::DecimalBuilder;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
-use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::serde::ArrayChildren;
+use crate::serde::swap_buffer_elements;
 mod kernel;
 mod operations;
 mod validity;
@@ -168,15 +168,30 @@ impl VTable for Decimal {
 
         let slots = DecimalData::make_slots(&validity, len);
         let data = match_each_decimal_value_type!(metadata.values_type(), |D| {
-            // Check and reinterpret-cast the buffer
-            vortex_ensure!(
-                values.is_aligned_to(Alignment::of::<D>()),
-                "DecimalArray buffer not aligned for values type {:?}",
-                D::DECIMAL_TYPE
-            );
+            // Realign by copy when needed rather than bailing: `Alignment::of::<i128>()` is
+            // ABI-dependent (8 on s390x, 16 on x86-64/aarch64), so a serialized buffer can
+            // legitimately arrive with a smaller recorded alignment than this host requires.
+            let values = values.ensure_aligned(Alignment::of::<D>())?;
             DecimalData::try_new_handle(values, metadata.values_type(), *decimal_dtype)
         })?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        let metadata = DecimalMetadata::decode(metadata)?;
+        // An i256 is two independent 16-byte limbs (low, high), so it swaps as 16-byte
+        // elements: each limb's bytes reverse while the limbs stay in place.
+        let width = metadata.values_type().byte_width().min(16);
+        buffers
+            .iter()
+            .map(|b| swap_buffer_elements(b, width))
+            .collect()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

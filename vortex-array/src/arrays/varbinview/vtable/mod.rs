@@ -6,6 +6,7 @@ use std::mem::size_of;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -227,6 +228,52 @@ impl VTable for VarBinView {
         )?;
         let slots = VarBinViewData::make_slots(&validity, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        let Some((views, data_buffers)) = buffers.split_last() else {
+            vortex_bail!("Expected at least 1 buffer, got 0");
+        };
+
+        let alignment = views.alignment();
+        let bytes = views.clone().try_to_host_sync()?;
+        vortex_ensure!(
+            bytes.len().is_multiple_of(size_of::<BinaryView>()),
+            "views buffer length {} is not a multiple of the view size",
+            bytes.len(),
+        );
+        let mut views = ByteBufferMut::with_capacity_aligned(bytes.len(), alignment);
+        views.extend_from_slice(bytes.as_ref());
+
+        for view in views.as_mut_slice().as_chunks_mut::<16>().0 {
+            // The size field discriminates the view layout, so read it in the serialized
+            // (foreign) byte order before any bytes move.
+            let size_bytes = [view[0], view[1], view[2], view[3]];
+            let size = if cfg!(target_endian = "big") {
+                u32::from_le_bytes(size_bytes)
+            } else {
+                u32::from_be_bytes(size_bytes)
+            };
+            view[0..4].reverse();
+            if size as usize > BinaryView::MAX_INLINED_SIZE {
+                // Reference views: the prefix (bytes 4..8) is raw value bytes and stays put,
+                // while buffer_index and offset are u32 fields that swap. Inlined views keep
+                // all 12 value bytes untouched.
+                view[8..12].reverse();
+                view[12..16].reverse();
+            }
+        }
+
+        // Data buffers hold raw value bytes, identical in either byte order.
+        let mut swapped = data_buffers.to_vec();
+        swapped.push(BufferHandle::new_host(views.freeze()));
+        Ok(swapped)
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

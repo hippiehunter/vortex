@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -56,6 +57,30 @@ pub trait ArrayPlugin: 'static + Send + Sync {
         session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
 
+    /// Convert serialized buffers written in the opposite byte order into the host's.
+    ///
+    /// Invoked before [`deserialize`](Self::deserialize) when a serialized array records the
+    /// opposite byte order from this host. See
+    /// [`VTable::swap_buffer_endianness`](crate::array::VTable::swap_buffer_endianness) for the
+    /// contract. The default accepts buffer-less encodings and refuses any encoding that owns
+    /// buffers.
+    fn swap_buffer_endianness(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        let _ = (dtype, len, metadata);
+        if buffers.is_empty() {
+            return Ok(Vec::new());
+        }
+        vortex_bail!(
+            "Encoding {} cannot decode buffers written in the opposite byte order",
+            self.id(),
+        )
+    }
+
     /// Can this plugin emit an array with the given encoding.
     ///
     /// By default, this is just the [ID][Self::id] of the plugin, but
@@ -102,5 +127,15 @@ impl<V: VTable> ArrayPlugin for V {
             self, dtype, len, metadata, buffers, children, session,
         )?)?
         .into_array())
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        V::swap_buffer_endianness(self, dtype, len, metadata, buffers)
     }
 }

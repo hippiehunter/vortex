@@ -120,6 +120,17 @@ impl VTable for Constant {
         unsupported_buffer_replacement(array, buffers)
     }
 
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // The scalar buffer is protobuf-encoded, which defines its own byte order.
+        Ok(buffers.to_vec())
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         vortex_panic!("ConstantArray slot_name index {idx} out of bounds")
     }

@@ -28,6 +28,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_patches;
 use vortex_array::require_validity;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::serde::swap_buffer_elements;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -270,6 +271,22 @@ impl VTable for BitPacked {
                 ctx,
             )
         })
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // The packed buffer is FastLanes words of the value type's width (the unsigned
+        // equivalent has the same width), so it swaps as fixed-width elements.
+        let ptype = PType::try_from(dtype)?;
+        buffers
+            .iter()
+            .map(|b| swap_buffer_elements(b, ptype.byte_width()))
+            .collect()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

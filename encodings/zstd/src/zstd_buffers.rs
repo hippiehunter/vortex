@@ -442,6 +442,17 @@ impl VTable for ZstdBuffers {
         )
     }
 
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // Compressed buffers are zstd byte streams, which define their own byte order.
+        Ok(buffers.to_vec())
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         format!("child_{idx}")
     }

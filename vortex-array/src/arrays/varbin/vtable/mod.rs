@@ -196,6 +196,18 @@ impl VTable for VarBin {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // The data buffer is raw value bytes; the offsets are a child array that swaps
+        // through its own encoding.
+        Ok(buffers.to_vec())
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         VarBinSlots::NAMES[idx].to_string()
     }

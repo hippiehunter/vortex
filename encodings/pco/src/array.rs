@@ -241,6 +241,17 @@ impl VTable for Pco {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // Chunk metadata and pages are pco byte streams, which define their own byte order.
+        Ok(buffers.to_vec())
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         PcoSlots::NAMES[idx].to_string()
     }

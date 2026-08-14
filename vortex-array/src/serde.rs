@@ -13,6 +13,7 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -37,6 +38,81 @@ use crate::dtype::DType;
 use crate::dtype::TryFromBytes;
 use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
+
+/// Returns the [`fba::Endianness`] of this host.
+///
+/// Serialized arrays record the writer's byte order; readers compare it against this value and
+/// byte-swap buffers on a mismatch. See [`ArrayPlugin::swap_buffer_endianness`].
+///
+/// [`ArrayPlugin::swap_buffer_endianness`]: crate::array::ArrayPlugin::swap_buffer_endianness
+pub fn native_endianness() -> fba::Endianness {
+    if cfg!(target_endian = "big") {
+        fba::Endianness::Big
+    } else {
+        fba::Endianness::Little
+    }
+}
+
+/// Reverse the bytes of each `element_width`-sized element of `bytes` in place.
+///
+/// This converts fixed-width values between big- and little-endian in either direction. Note
+/// that a 32-byte `i256` is two independent 16-byte limbs, so it swaps with `element_width`
+/// 16, not 32.
+///
+/// # Panics
+///
+/// Panics if `bytes.len()` is not a multiple of `element_width`, or if `element_width` is not
+/// one of 1, 2, 4, 8, or 16.
+pub fn reverse_element_bytes(bytes: &mut [u8], element_width: usize) {
+    assert!(
+        bytes.len().is_multiple_of(element_width),
+        "buffer length {} is not a multiple of element width {element_width}",
+        bytes.len(),
+    );
+    match element_width {
+        1 => {}
+        2 => bytes
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .for_each(|c| c.reverse()),
+        4 => bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .for_each(|c| c.reverse()),
+        8 => bytes
+            .as_chunks_mut::<8>()
+            .0
+            .iter_mut()
+            .for_each(|c| c.reverse()),
+        16 => bytes
+            .as_chunks_mut::<16>()
+            .0
+            .iter_mut()
+            .for_each(|c| c.reverse()),
+        _ => vortex_panic!("unsupported element width {element_width} for byte reversal"),
+    }
+}
+
+/// Returns a host copy of `handle` with the bytes of each `element_width`-sized element
+/// reversed, preserving the buffer's alignment.
+///
+/// This is the standard building block for [`swap_buffer_endianness`] implementations over
+/// buffers of fixed-width elements.
+///
+/// [`swap_buffer_endianness`]: crate::array::ArrayPlugin::swap_buffer_endianness
+pub fn swap_buffer_elements(
+    handle: &BufferHandle,
+    element_width: usize,
+) -> VortexResult<BufferHandle> {
+    let alignment = handle.alignment();
+    let bytes = handle.clone().try_to_host_sync()?;
+    let mut copy = ByteBufferMut::with_capacity_aligned(bytes.len(), alignment);
+    copy.extend_from_slice(bytes.as_ref());
+    reverse_element_bytes(copy.as_mut_slice(), element_width);
+    Ok(BufferHandle::new_host(copy.freeze()))
+}
 
 /// Options for serializing an array.
 #[derive(Default, Debug)]
@@ -130,6 +206,9 @@ impl ArrayRef {
             &fba::ArrayArgs {
                 root: Some(fb_root),
                 buffers: Some(fb_buffers),
+                // Buffers are written as native memory images; readers on the opposite byte
+                // order swap them at decode.
+                endianness: native_endianness(),
             },
         );
         fbb.finish_minimal(fb_array);
@@ -335,6 +414,13 @@ impl SerializedArray {
         };
 
         let buffers = self.collect_buffers()?;
+        // Buffers serialized on a host of the opposite byte order must be swapped into native
+        // order before the encoding can interpret them.
+        let buffers = if self.endianness() == native_endianness() {
+            buffers
+        } else {
+            Cow::Owned(plugin.swap_buffer_endianness(dtype, len, self.metadata(), &buffers)?)
+        };
 
         let decoded =
             plugin.deserialize(dtype, len, self.metadata(), &buffers, &children, session)?;
@@ -380,6 +466,16 @@ impl SerializedArray {
         len: usize,
         ctx: &ReadContext,
     ) -> VortexResult<ArrayRef> {
+        // An unknown encoding cannot describe how its buffers are byte-swapped, so a
+        // cross-endian foreign array would silently decode garbage. Refuse instead.
+        if self.endianness() != native_endianness() {
+            vortex_bail!(
+                "Cannot decode unknown encoding {} serialized with {:?} byte order on a {:?} host",
+                encoding_id,
+                self.endianness(),
+                native_endianness(),
+            );
+        }
         let children = (0..self.nchildren())
             .map(|idx| {
                 let child = self.child(idx);
@@ -401,6 +497,17 @@ impl SerializedArray {
             self.collect_buffers()?.into_owned(),
             children,
         )
+    }
+
+    /// Returns the byte order of the serialized buffers, as recorded by the writer.
+    ///
+    /// Absent in the flatbuffer means little-endian: every file written before the field
+    /// existed came from a little-endian host. The value is recorded once on the root
+    /// [`fba::Array`], so all nodes of one serialized tree share it.
+    pub fn endianness(&self) -> fba::Endianness {
+        root::<fba::Array>(self.flatbuffer.as_ref())
+            .vortex_expect("SerializedArray flatbuffer must be a valid Array")
+            .endianness()
     }
 
     /// Returns the array encoding.
@@ -781,6 +888,7 @@ mod tests {
             &fba::ArrayArgs {
                 root: Some(fb_root),
                 buffers: Some(fb_buffers),
+                endianness: native_endianness(),
             },
         );
         fbb.finish_minimal(fb_array);

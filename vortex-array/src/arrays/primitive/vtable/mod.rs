@@ -21,6 +21,7 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::serde::ArrayChildren;
+use crate::serde::swap_buffer_elements;
 mod kernel;
 mod operations;
 mod validity;
@@ -171,6 +172,20 @@ impl VTable for Primitive {
         let slots = PrimitiveData::make_slots(&validity, len);
         let data = unsafe { PrimitiveData::new_unchecked_from_handle(buffer, ptype, validity) };
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        let ptype = PType::try_from(dtype)?;
+        buffers
+            .iter()
+            .map(|b| swap_buffer_elements(b, ptype.byte_width()))
+            .collect()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -154,6 +154,17 @@ impl VTable for ByteBool {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // One byte per boolean value, identical in either byte order.
+        Ok(buffers.to_vec())
+    }
+
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
         ByteBoolSlots::NAMES[idx].to_string()
     }

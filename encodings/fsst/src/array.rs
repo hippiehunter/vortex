@@ -43,6 +43,7 @@ use vortex_array::legacy_session;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_varbin_builder;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::serde::swap_buffer_elements;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -308,6 +309,28 @@ impl VTable for FSST {
             "InvalidArgument: Expected 2 or 3 buffers, got {}",
             buffers.len()
         );
+    }
+
+    fn swap_buffer_endianness(
+        &self,
+        _dtype: &DType,
+        _len: usize,
+        _metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        // Buffer 0 holds the symbol table as u64 words; the symbol lengths and the compressed
+        // code stream are plain bytes.
+        buffers
+            .iter()
+            .enumerate()
+            .map(|(idx, b)| {
+                if idx == 0 {
+                    swap_buffer_elements(b, size_of::<Symbol>())
+                } else {
+                    Ok(b.clone())
+                }
+            })
+            .collect()
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

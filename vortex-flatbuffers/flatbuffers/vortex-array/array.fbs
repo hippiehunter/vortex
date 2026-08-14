@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+/// The byte order of an array's data buffers.
+enum Endianness: uint8 {
+    Little = 0,
+    Big = 1,
+}
+
 /// An Array describes the hierarchy of an array as well as the locations of the data buffers that appear
 /// immediately after the message in the byte stream.
 table Array {
@@ -8,6 +14,10 @@ table Array {
     root: ArrayNode;
     /// The locations of the data buffers of the array
     buffers: [Buffer];
+    /// The byte order of the data buffers. Writers record their native byte order; readers on a
+    /// host of the opposite byte order must byte-swap buffers as they decode. Absent means
+    /// little-endian, which is what every file written before this field existed contains.
+    endianness: Endianness = Little;
 }
 
 /// The compression mechanism used to compress the buffer.

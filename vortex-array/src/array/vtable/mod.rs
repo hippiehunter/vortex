@@ -140,6 +140,36 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>>;
 
+    /// Convert serialized buffers written in the opposite byte order into the host's.
+    ///
+    /// Invoked before [`deserialize`](Self::deserialize) when a serialized array records the
+    /// opposite byte order from this host. Implementations must return buffers holding the
+    /// host-native representation of the same logical values: fixed-width element buffers are
+    /// byte-swapped per element (see
+    /// [`swap_buffer_elements`](crate::serde::swap_buffer_elements)), while buffers whose
+    /// contents are defined as plain bytes (bitmaps, UTF-8/binary data, protobuf, compressed
+    /// byte streams) are returned unchanged.
+    ///
+    /// The default accepts buffer-less encodings and refuses any encoding that owns buffers, so
+    /// every buffer-owning encoding must implement this before its arrays can be decoded across
+    /// endianness.
+    fn swap_buffer_endianness(
+        &self,
+        dtype: &DType,
+        len: usize,
+        metadata: &[u8],
+        buffers: &[BufferHandle],
+    ) -> VortexResult<Vec<BufferHandle>> {
+        let _ = (dtype, len, metadata);
+        if buffers.is_empty() {
+            return Ok(Vec::new());
+        }
+        vortex_bail!(
+            "Encoding {} cannot decode buffers written in the opposite byte order",
+            VTable::id(self),
+        )
+    }
+
     /// Writes the array's logical values into a canonical builder.
     ///
     /// The default implementation executes the full array to [`Canonical`] and appends that result.

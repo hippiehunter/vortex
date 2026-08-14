@@ -3495,6 +3495,7 @@ dependencies = [
 [[package]]
 name = "fsst-rs"
 version = "0.6.1"
+source = "git+https://github.com/hippiehunter/fsst#3c017d3534d6519ff57e12d72d31ca2f47876591"
 dependencies = [
  "rustc-hash",
 ]
@@ -6313,6 +6314,7 @@ checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
 [[package]]
 name = "onpair"
 version = "0.2.1"
+source = "git+https://github.com/hippiehunter/onpair#9194ff5db7c387c8a7e7f47417060d1f77ce505c"
 dependencies = [
  "hashbrown 0.16.1",
  "rand 0.9.5",
@@ -6898,7 +6900,7 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
- "rand 0.9.5",
+ "rand 0.8.7",
  "socket2",
  "thiserror 2.0.19",
 ]

@@ -446,8 +446,6 @@ debug = false
 
 # s390x port: endian-portable forks of the two crates that upstream gates on
 # little-endian (crate-level cfg compiles them to empty crates on s390x).
-# Sibling clones, branch big-endian-support in each. Switch to git URLs once
-# the branches are pushed if CI needs them.
 [patch.crates-io]
-fsst-rs = { path = "../fsst" }
-onpair = { path = "../onpair" }
+fsst-rs = { git = "https://github.com/hippiehunter/fsst" }
+onpair = { git = "https://github.com/hippiehunter/onpair" }

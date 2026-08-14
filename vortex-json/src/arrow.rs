@@ -201,9 +201,17 @@ mod tests {
 
         dbg!(exported.data_type());
 
+        // Read through `arrow_view_value`: arrow's accessor slices the stored u128's raw
+        // bytes, which is broken on big-endian hosts.
         let strings = exported.as_string_view();
-        assert_eq!(strings.value(0), "{\"id\":1}");
-        assert_eq!(strings.value(1), "{\"id\":2}");
+        assert_eq!(
+            vortex_arrow::view_value::arrow_view_value(strings, 0),
+            b"{\"id\":1}"
+        );
+        assert_eq!(
+            vortex_arrow::view_value::arrow_view_value(strings, 1),
+            b"{\"id\":2}"
+        );
         Ok(())
     }
 

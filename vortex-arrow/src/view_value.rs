@@ -1,20 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Portable reads of Arrow view-array elements.
+
 use arrow_array::GenericByteViewArray;
 use arrow_array::types::ByteViewType;
 
-/// Read element `i` of an arrow view array through the documented u128 value convention.
+/// Read element `i` of an Arrow view array through the documented u128 value convention.
 ///
 /// `GenericByteViewArray::value` slices the stored u128's raw memory bytes for inlined views
-/// while reading the length from its *value*, which only agree on little-endian hosts. This
-/// helper stays portable, so tests validate the emitted views on any host instead of arrow's
-/// accessor behavior.
+/// while reading the length from its *value*; the two agree only on little-endian hosts, so
+/// arrow's accessor returns scrambled inline bytes on big-endian targets. This helper reads
+/// the value convention directly and is correct on any host.
 #[allow(clippy::cast_possible_truncation)]
-pub(crate) fn arrow_view_value<T: ByteViewType>(
-    array: &GenericByteViewArray<T>,
-    i: usize,
-) -> Vec<u8> {
+pub fn arrow_view_value<T: ByteViewType>(array: &GenericByteViewArray<T>, i: usize) -> Vec<u8> {
     let v = array.views()[i];
     let len = v as u32 as usize;
     if len <= 12 {

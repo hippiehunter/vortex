@@ -208,7 +208,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::ArrowSessionExt;
-    use crate::test_util::arrow_view_value;
+    use crate::view_value::arrow_view_value;
 
     #[test]
     fn mask_wrapped_varbin_exports() -> VortexResult<()> {

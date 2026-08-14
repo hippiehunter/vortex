@@ -442,3 +442,10 @@ incremental = false
 # This improved build times significantly for default common cases that we use locally
 [profile.dev.package.vortex-fastlanes]
 debug = false
+
+# s390x port: endian-portable fsst fork (upstream gates the whole crate on
+# little-endian). Sibling clone of github.com/hippiehunter/fsst, branch
+# big-endian-support. Switch to the git URL once the branch is pushed if CI
+# needs it.
+[patch.crates-io]
+fsst-rs = { path = "../fsst" }

@@ -1,0 +1,10 @@
+# Configuration for `cross` (container-based cross builds), used for the s390x
+# big-endian port: `cross check/test --target s390x-unknown-linux-gnu`.
+#
+# The named environment variables hold host paths that cross bind-mounts into
+# the build container at the same location, so the sibling [patch.crates-io]
+# path dependencies resolve inside the container:
+#   VORTEX_SIBLING_FSST=/home/jeff/repos/fsst
+#   VORTEX_SIBLING_ONPAIR=/home/jeff/repos/onpair
+[build.env]
+volumes = ["VORTEX_SIBLING_FSST", "VORTEX_SIBLING_ONPAIR"]

@@ -8,6 +8,7 @@ use bitvec::view::BitView;
 use crate::BitBuffer;
 use crate::BufferMut;
 use crate::ByteBufferMut;
+use crate::bit::bitmap_words_into_bytes;
 use crate::bit::collect_bool_words;
 use crate::bit::get_bit_unchecked;
 use crate::bit::ops;
@@ -179,7 +180,7 @@ impl BitBufferMut {
             buffer.as_mut_slice()[idx / 64] |= 1 << (idx % 64);
         }
 
-        let mut buffer = buffer.into_byte_buffer();
+        let mut buffer = bitmap_words_into_bytes(buffer);
         buffer.truncate(len.div_ceil(8));
 
         Self {
@@ -241,7 +242,7 @@ impl BitBufferMut {
         unsafe { buffer.set_len(num_words) };
         fill(buffer.as_mut_slice());
 
-        let mut bytes = buffer.into_byte_buffer();
+        let mut bytes = bitmap_words_into_bytes(buffer);
         bytes.truncate(len.div_ceil(8));
 
         Self {

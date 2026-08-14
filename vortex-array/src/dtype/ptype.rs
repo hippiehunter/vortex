@@ -921,10 +921,14 @@ impl From<PType> for DType {
     }
 }
 
-/// A trait for types that can be converted to a little-endian byte slice
+/// A trait for viewing a value's underlying bytes without copying.
 pub trait ToBytes: Sized {
-    /// Returns a slice of this type's bytes in little-endian order
-    fn to_le_bytes(&self) -> &[u8];
+    /// Returns the value's bytes in the host's native byte order.
+    ///
+    /// This is a zero-copy view of the value's memory, so the byte order follows the host. Use
+    /// the standard `to_le_bytes` inherent methods when a defined byte order is required, e.g.
+    /// for anything that is persisted or sent across hosts.
+    fn as_native_bytes(&self) -> &[u8];
 }
 
 /// A trait for types that can be converted from a little-endian byte slice
@@ -937,9 +941,7 @@ macro_rules! try_from_bytes {
     ($T:ty) => {
         impl ToBytes for $T {
             #[inline]
-            fn to_le_bytes(&self) -> &[u8] {
-                // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
-                //  with a flag cfg(target_endian = "little")
+            fn as_native_bytes(&self) -> &[u8] {
                 let raw_ptr = (self as *const $T).cast::<u8>();
                 unsafe { std::slice::from_raw_parts(raw_ptr, std::mem::size_of::<$T>()) }
             }

@@ -173,19 +173,19 @@ impl Hash for PValue {
 }
 
 impl ToBytes for PValue {
-    fn to_le_bytes(&self) -> &[u8] {
+    fn as_native_bytes(&self) -> &[u8] {
         match self {
-            PValue::U8(v) => v.to_le_bytes(),
-            PValue::U16(v) => v.to_le_bytes(),
-            PValue::U32(v) => v.to_le_bytes(),
-            PValue::U64(v) => v.to_le_bytes(),
-            PValue::I8(v) => v.to_le_bytes(),
-            PValue::I16(v) => v.to_le_bytes(),
-            PValue::I32(v) => v.to_le_bytes(),
-            PValue::I64(v) => v.to_le_bytes(),
-            PValue::F16(v) => v.to_le_bytes(),
-            PValue::F32(v) => v.to_le_bytes(),
-            PValue::F64(v) => v.to_le_bytes(),
+            PValue::U8(v) => v.as_native_bytes(),
+            PValue::U16(v) => v.as_native_bytes(),
+            PValue::U32(v) => v.as_native_bytes(),
+            PValue::U64(v) => v.as_native_bytes(),
+            PValue::I8(v) => v.as_native_bytes(),
+            PValue::I16(v) => v.as_native_bytes(),
+            PValue::I32(v) => v.as_native_bytes(),
+            PValue::I64(v) => v.as_native_bytes(),
+            PValue::F16(v) => v.as_native_bytes(),
+            PValue::F32(v) => v.as_native_bytes(),
+            PValue::F64(v) => v.as_native_bytes(),
         }
     }
 }

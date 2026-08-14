@@ -5,6 +5,7 @@ use std::iter::repeat_n;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_buffer::read_u64_le;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -565,9 +566,9 @@ fn finish_fused_boolean_words(
     validity: BufferMut<u64>,
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
-    let mut values = values.into_byte_buffer();
+    let mut values = bitmap_words_into_bytes(values);
     values.truncate(n_bytes);
-    let mut validity = validity.into_byte_buffer();
+    let mut validity = bitmap_words_into_bytes(validity);
     validity.truncate(n_bytes);
     Ok(BoolArray::try_new(
         BitBuffer::new(values.freeze(), len),

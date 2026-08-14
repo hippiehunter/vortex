@@ -20,7 +20,7 @@ use crate::bit::BitChunks;
 use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
-use crate::bit::UnalignedBitChunk;
+use crate::bit::bitmap_words_into_bytes;
 use crate::bit::collect_bool_word;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
@@ -266,7 +266,7 @@ impl BitBuffer {
             unsafe { buffer.push_unchecked(packed) }
         }
 
-        let mut bytes = buffer.into_byte_buffer();
+        let mut bytes = bitmap_words_into_bytes(buffer);
         bytes.truncate(len.div_ceil(8));
 
         Self {
@@ -383,15 +383,7 @@ impl BitBuffer {
         BitBuffer::new_with_offset(buffer, len, bit_offset)
     }
 
-    /// Access chunks of the buffer aligned to 8 byte boundary as [prefix, \<full chunks\>, suffix]
-    #[inline]
-    pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'_> {
-        UnalignedBitChunk::new(self.buffer.as_slice(), self.offset, self.len)
-    }
-
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer
-    ///
-    /// If you're performing operations on a single buffer, prefer [BitBuffer::unaligned_chunks]
     #[inline]
     pub fn chunks(&self) -> BitChunks<'_> {
         BitChunks::new(self.buffer.as_slice(), self.offset, self.len)

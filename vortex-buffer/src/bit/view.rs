@@ -12,7 +12,6 @@ use crate::bit::BitChunks;
 use crate::bit::BitIndexIterator;
 use crate::bit::BitIterator;
 use crate::bit::BitSliceIterator;
-use crate::bit::UnalignedBitChunk;
 use crate::bit::buf_mut::fill_bits;
 use crate::bit::count_ones::count_ones;
 use crate::bit::get_bit_unchecked;
@@ -150,13 +149,6 @@ impl<'a> BitBufferView<'a> {
     pub fn slice(&self, range: impl RangeBounds<usize>) -> BitBufferView<'a> {
         let (start, end) = resolve_range(range, self.len);
         BitBufferView::new_with_offset(self.buffer, end - start, self.offset + start)
-    }
-
-    /// Access chunks of the buffer aligned to an 8 byte boundary as
-    /// `[prefix, <full chunks>, suffix]`.
-    #[inline]
-    pub fn unaligned_chunks(&self) -> UnalignedBitChunk<'a> {
-        UnalignedBitChunk::new(self.buffer, self.offset, self.len)
     }
 
     /// Access chunks of the underlying buffer as 8 byte chunks with a final trailer.

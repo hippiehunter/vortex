@@ -616,21 +616,25 @@ fn test_partial_ord_cross_types() {
 }
 
 #[test]
-fn test_to_le_bytes() {
-    assert_eq!(PValue::U8(0x12).to_le_bytes(), &[0x12]);
-    assert_eq!(PValue::U16(0x1234).to_le_bytes(), &[0x34, 0x12]);
+#[allow(clippy::host_endian_bytes)]
+fn test_as_native_bytes() {
+    assert_eq!(PValue::U8(0x12).as_native_bytes(), &[0x12]);
     assert_eq!(
-        PValue::U32(0x12345678).to_le_bytes(),
-        &[0x78, 0x56, 0x34, 0x12]
+        PValue::U16(0x1234).as_native_bytes(),
+        &0x1234u16.to_ne_bytes()
+    );
+    assert_eq!(
+        PValue::U32(0x12345678).as_native_bytes(),
+        &0x12345678u32.to_ne_bytes()
     );
 
-    assert_eq!(PValue::I8(-1).to_le_bytes(), &[0xFF]);
-    assert_eq!(PValue::I16(-1).to_le_bytes(), &[0xFF, 0xFF]);
+    assert_eq!(PValue::I8(-1).as_native_bytes(), &[0xFF]);
+    assert_eq!(PValue::I16(-1).as_native_bytes(), &[0xFF, 0xFF]);
 
-    let f32_bytes = PValue::F32(1.0).to_le_bytes();
+    let f32_bytes = PValue::F32(1.0).as_native_bytes();
     assert_eq!(f32_bytes.len(), 4);
 
-    let f64_bytes = PValue::F64(1.0).to_le_bytes();
+    let f64_bytes = PValue::F64(1.0).as_native_bytes();
     assert_eq!(f64_bytes.len(), 8);
 }
 

@@ -10,6 +10,7 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
 use vortex_buffer::CpuKernel;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_error::VortexExpect;
 
 use crate::Mask;
@@ -281,7 +282,7 @@ fn intersect_bit_buffers<D: DepositBits>(
     }
 
     mask_from_buffer(
-        BitBuffer::new(result.freeze().into_byte_buffer(), len),
+        BitBuffer::new(bitmap_words_into_bytes(result).freeze(), len),
         true_count,
     )
 }
@@ -315,7 +316,7 @@ fn intersect_bit_buffer_by_rank_indices<D: DepositBits>(
     debug_assert_eq!(rank_idx, mask_indices.len());
 
     mask_from_buffer(
-        BitBuffer::new(result.freeze().into_byte_buffer(), len),
+        BitBuffer::new(bitmap_words_into_bytes(result).freeze(), len),
         mask_indices.len(),
     )
 }

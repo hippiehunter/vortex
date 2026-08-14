@@ -184,14 +184,28 @@ impl BinaryView {
     #[inline]
     pub fn new_ref(size: u32, prefix: [u8; 4], buffer_index: u32, offset: u32) -> Self {
         debug_assert!(size as usize > Self::MAX_INLINED_SIZE);
-        // Matches the little-endian field order of `Ref` (size, prefix, buffer_index, offset),
-        // consistent with `le_bytes` and the `From<u128>`/`as_u128` representation.
-        Self::from(
-            u128::from(size)
-                | (u128::from(u32::from_le_bytes(prefix)) << 32)
-                | (u128::from(buffer_index) << 64)
-                | (u128::from(offset) << 96),
-        )
+        #[cfg(target_endian = "little")]
+        {
+            // Assembles the view as a single `u128` so the compiler emits one wide store. The
+            // shift positions match the in-memory order of `Ref`'s fields only on little-endian
+            // hosts; big-endian hosts construct the struct directly so the fields are stored
+            // native-endian, consistent with the field reads in `as_view`/`len`.
+            Self::from(
+                u128::from(size)
+                    | (u128::from(u32::from_le_bytes(prefix)) << 32)
+                    | (u128::from(buffer_index) << 64)
+                    | (u128::from(offset) << 96),
+            )
+        }
+        #[cfg(target_endian = "big")]
+        {
+            Self::from(Ref {
+                size,
+                prefix,
+                buffer_index,
+                offset,
+            })
+        }
     }
 
     /// Create a new inlined binary view

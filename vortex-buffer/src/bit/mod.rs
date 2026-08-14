@@ -11,6 +11,7 @@ mod arrow;
 mod buf;
 mod buf_mut;
 mod count_ones;
+mod iter;
 mod macros;
 mod meta;
 mod ops;
@@ -18,18 +19,22 @@ mod pack;
 mod select;
 mod view;
 
+// `UnalignedBitChunk` and the arrow set-bit iterators built on it are deliberately not
+// re-exported: they read bitmap words through `align_to::<u64>()` in native byte order, which
+// scrambles LSB-first bitmaps on big-endian hosts. Use [`BitIndexIterator`] and
+// [`BitSliceIterator`] from [`iter`] instead.
 pub use arrow_buffer::bit_chunk_iterator::BitChunkIterator;
 pub use arrow_buffer::bit_chunk_iterator::BitChunks;
-pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunk;
-pub use arrow_buffer::bit_chunk_iterator::UnalignedBitChunkIterator;
-pub use arrow_buffer::bit_iterator::BitIndexIterator;
 pub use arrow_buffer::bit_iterator::BitIterator;
-pub use arrow_buffer::bit_iterator::BitSliceIterator;
 pub use buf::*;
 pub use buf_mut::*;
+pub use iter::*;
 pub use meta::*;
 pub use pack::*;
 pub use view::*;
+
+use crate::BufferMut;
+use crate::ByteBufferMut;
 
 /// Packs up to 64 boolean values into a little-endian `u64` word.
 ///
@@ -91,6 +96,33 @@ pub fn read_u64_le(bytes: &[u8]) -> u64 {
     let mut buf = [0u8; 8];
     buf[..bytes.len()].copy_from_slice(bytes);
     u64::from_le_bytes(buf)
+}
+
+/// Byte-reverse each bitmap word in place on big-endian hosts; a no-op on little-endian hosts.
+///
+/// Bit `i` of a bitmap lives at bit `i % 64` of word `i / 64`, while the bitmap's byte form
+/// keeps it at bit `i % 8` of byte `i / 8`. The two agree only when each word's bytes are laid
+/// out little-endian, so words must pass through this before being reinterpreted as bitmap
+/// bytes. The read direction is already covered by [`read_u64_le`] and the LE-normalizing
+/// chunk iterators.
+#[inline]
+pub fn bitmap_words_to_le(words: &mut [u64]) {
+    if cfg!(target_endian = "big") {
+        for w in words {
+            *w = w.to_le();
+        }
+    }
+}
+
+/// Reinterpret a buffer of bitmap words (LSB-first, 64 bits per word) as the bitmap's byte
+/// form, byte-reversing each word on big-endian hosts via [`bitmap_words_to_le`].
+///
+/// This is the only correct way to turn packed bitmap words into `BitBuffer` bytes; a plain
+/// `into_byte_buffer()` on the word buffer produces a byte-swapped bitmap on big-endian hosts.
+#[inline]
+pub fn bitmap_words_into_bytes(mut words: BufferMut<u64>) -> ByteBufferMut {
+    bitmap_words_to_le(words.as_mut_slice());
+    words.into_byte_buffer()
 }
 
 /// Splice a packed word `w` (whose bits above the highest valid bit are zero) into

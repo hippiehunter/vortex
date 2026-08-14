@@ -125,10 +125,14 @@ impl<'a> ViewsSide<'a> {
 
 /// The leading 8 bytes of a view: the `u32` length plus the first 4 bytes of the value
 /// (zero-padded for values shorter than 4 bytes).
+///
+/// The length half is read through the native `size` field so it matches heads built from
+/// semantic values (e.g. `constant_head`) on any endianness; the prefix half stays in raw
+/// memory order. On little-endian this folds to the plain low-8-byte load of the view.
 #[inline]
 #[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
 fn view_head(view: &BinaryView) -> u64 {
-    view.as_u128() as u64
+    u64::from(view.len()) | (u64::from((view.as_u128() >> 32) as u32) << 32)
 }
 
 /// The first 4 value bytes of a view as a big-endian `u32` (zero-padded for values shorter than
@@ -367,8 +371,11 @@ fn constant_eq(
     }
     if view.is_inlined() {
         // An equal head implies equal lengths, so the constant is also at most 12 bytes and
-        // `constant_inlined` holds its exact inlined representation.
-        return view.as_u128() == constant_inlined;
+        // `constant_inlined` holds its exact inlined representation. The view's word routes its
+        // size field through `view_head` so the comparison is endian-portable; on little-endian
+        // this is exactly `view.as_u128()`.
+        let view_inlined = u128::from(view_head(view)) | ((view.as_u128() >> 64) << 64);
+        return view_inlined == constant_inlined;
     }
     side.view_bytes(view)[4..] == constant[4..]
 }

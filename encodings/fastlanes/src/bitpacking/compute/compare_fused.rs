@@ -43,6 +43,7 @@ use vortex_array::dtype::PhysicalPType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -113,11 +114,19 @@ where
                     rhs,
                 );
             }
+            // `unchecked_unpack_cmp` fills the mask words at the value level (LSB-first bit
+            // positions), while `untranspose_bits` permutes their *memory bytes* assuming
+            // little-endian words. On big-endian hosts, present the words as little-endian
+            // bytes and restore the output afterwards.
+            #[cfg(target_endian = "big")]
+            transposed.iter_mut().for_each(|w| *w = w.swap_bytes());
             untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
+            #[cfg(target_endian = "big")]
+            out.iter_mut().for_each(|w| *w = w.swap_bytes());
         });
     }
 
-    let mut bits = BitBufferMut::from_buffer(words.into_byte_buffer(), offset, len);
+    let mut bits = BitBufferMut::from_buffer(bitmap_words_into_bytes(words), offset, len);
 
     // Patched indices hold placeholder packed values, so their fused result is meaningless;
     // overwrite each with the comparison against the real patch value.

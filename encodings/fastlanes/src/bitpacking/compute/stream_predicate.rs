@@ -27,6 +27,7 @@ use vortex_array::dtype::Nullability;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_buffer::pack_bools_into_words;
 use vortex_error::VortexResult;
 
@@ -73,7 +74,7 @@ where
         }
     }
 
-    let bits = BitBufferMut::from_buffer(words.into_byte_buffer(), 0, len);
+    let bits = BitBufferMut::from_buffer(bitmap_words_into_bytes(words), 0, len);
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
 }

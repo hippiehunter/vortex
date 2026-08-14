@@ -411,10 +411,14 @@ fn bytes_eq(lhs: &[u8], rhs: &[u8]) -> bool {
 
 /// The leading 8 bytes of a view: the `u32` length plus the first 4 bytes of the value
 /// (zero-padded for values shorter than 4 bytes).
+///
+/// The length half is read through the native `size` field so it matches [`needle_head`] on any
+/// endianness; the prefix half stays in raw memory order. On little-endian this folds to the
+/// plain low-8-byte load of the view.
 #[inline]
 #[expect(clippy::cast_possible_truncation, reason = "intentional bit slicing")]
 fn view_head(view: &BinaryView) -> u64 {
-    view.as_u128() as u64
+    u64::from(view.len()) | (u64::from((view.as_u128() >> 32) as u32) << 32)
 }
 
 /// The view head a needle of more than 4 bytes would have: its length plus first 4 bytes.

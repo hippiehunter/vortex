@@ -3,6 +3,7 @@
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -78,7 +79,7 @@ fn zip_value_bits(if_true: &BitBuffer, if_false: &BitBuffer, mask: &BitBuffer) -
         values.push((true_bits & mask_bits) | (false_bits & !mask_bits));
     }
 
-    BitBuffer::new(values.freeze().into_byte_buffer(), if_true.len())
+    BitBuffer::new(bitmap_words_into_bytes(values).freeze(), if_true.len())
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::CpuKernel;
+use vortex_buffer::bitmap_words_to_le;
 use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -209,6 +210,7 @@ fn filter_inner(
 
     // SAFETY: we wrote exactly out_idx words, which is <= out_u64s + 1 = capacity.
     unsafe { output.set_len(out_idx) };
+    bitmap_words_to_le(&mut output);
 
     let byte_len = true_count.div_ceil(8);
     let bytes: Vec<u8> = unsafe {

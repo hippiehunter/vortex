@@ -7,6 +7,7 @@ use crate::BitBuffer;
 use crate::BitBufferMut;
 use crate::BufferMut;
 use crate::ByteBufferMut;
+use crate::bitmap_words_into_bytes;
 use crate::read_u64_le;
 
 trait BitWordTarget {
@@ -220,7 +221,7 @@ pub(super) fn bitwise_binary_op<F: FnMut(u64, u64) -> u64>(
         out
     };
 
-    let mut bytes = out.into_byte_buffer();
+    let mut bytes = bitmap_words_into_bytes(out);
     bytes.truncate(n_bytes);
     BitBuffer::new(bytes.freeze(), len)
 }

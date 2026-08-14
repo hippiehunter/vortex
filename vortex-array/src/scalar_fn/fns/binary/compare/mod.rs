@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
+use vortex_buffer::bitmap_words_into_bytes;
 use vortex_compute::lane_kernels::IndexedSourceExt;
 use vortex_compute::lane_kernels::LaneZip;
 use vortex_error::VortexResult;
@@ -284,7 +285,7 @@ pub(super) fn ordering_predicate(op: CompareOperator) -> fn(Ordering) -> bool {
 /// Freeze `len` bits packed into `words` (LSB-first, 64 lanes per word) into a [`BitBuffer`].
 pub(super) fn bit_buffer_from_words(words: BufferMut<u64>, len: usize) -> BitBuffer {
     debug_assert!(words.len() * 64 >= len);
-    let mut bytes = words.into_byte_buffer();
+    let mut bytes = bitmap_words_into_bytes(words);
     bytes.truncate(len.div_ceil(8));
     BitBuffer::new(bytes.freeze(), len)
 }

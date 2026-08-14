@@ -55,14 +55,17 @@ impl Alignment {
 
     /// Create an alignment from the alignment of a type `T`.
     ///
+    /// The result follows the target ABI, so it can differ across architectures: `u128` is
+    /// 16-byte aligned on x86-64 and aarch64 but 8-byte aligned on s390x.
+    ///
     /// ## Example
     ///
     /// ```
     /// use vortex_buffer::Alignment;
     ///
+    /// assert_eq!(Alignment::new(1), Alignment::of::<u8>());
     /// assert_eq!(Alignment::new(4), Alignment::of::<i32>());
     /// assert_eq!(Alignment::new(8), Alignment::of::<i64>());
-    /// assert_eq!(Alignment::new(16), Alignment::of::<u128>());
     /// ```
     #[inline]
     pub const fn of<T>() -> Self {

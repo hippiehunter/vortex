@@ -633,7 +633,9 @@ mod tests {
             .as_any()
             .downcast_ref::<StringViewArray>()
             .expect("map value array should be StringView");
-        assert_eq!(values.value(0), "one");
+        // Read through `arrow_view_value`: arrow's accessor slices the stored u128's raw
+        // bytes, which is broken on big-endian hosts.
+        assert_eq!(crate::test_util::arrow_view_value(values, 0), b"one");
         assert!(values.is_null(1));
 
         Ok(())

@@ -208,6 +208,7 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::ArrowSessionExt;
+    use crate::test_util::arrow_view_value;
 
     #[test]
     fn mask_wrapped_varbin_exports() -> VortexResult<()> {
@@ -282,13 +283,15 @@ mod tests {
         let expected: Vec<&[u8]> = vec![b"hello", b"world", b"this is a longer string for testing"];
 
         for (i, expected_bytes) in expected.iter().enumerate() {
-            let actual_bytes: &[u8] = match &target_dtype {
-                DataType::Binary => arrow.as_binary::<i32>().value(i),
-                DataType::LargeBinary => arrow.as_binary::<i64>().value(i),
-                DataType::Utf8 => arrow.as_string::<i32>().value(i).as_bytes(),
-                DataType::LargeUtf8 => arrow.as_string::<i64>().value(i).as_bytes(),
-                DataType::BinaryView => arrow.as_binary_view().value(i),
-                DataType::Utf8View => arrow.as_string_view().value(i).as_bytes(),
+            // View arrays read back through `arrow_view_value`: arrow's own accessor slices
+            // the stored u128's raw bytes, which is broken on big-endian hosts.
+            let actual_bytes: Vec<u8> = match &target_dtype {
+                DataType::Binary => arrow.as_binary::<i32>().value(i).to_vec(),
+                DataType::LargeBinary => arrow.as_binary::<i64>().value(i).to_vec(),
+                DataType::Utf8 => arrow.as_string::<i32>().value(i).as_bytes().to_vec(),
+                DataType::LargeUtf8 => arrow.as_string::<i64>().value(i).as_bytes().to_vec(),
+                DataType::BinaryView => arrow_view_value(arrow.as_binary_view(), i),
+                DataType::Utf8View => arrow_view_value(arrow.as_string_view(), i),
                 _ => unreachable!(),
             };
             assert_eq!(actual_bytes, *expected_bytes, "Mismatch at index {i}");
@@ -465,7 +468,7 @@ mod tests {
             .arrow()
             .execute_arrow(filtered.into_array(), None, &mut ctx)?;
 
-        assert_eq!(arrow.as_string_view().value(0), "selected");
+        assert_eq!(arrow_view_value(arrow.as_string_view(), 0), b"selected");
         assert!(
             arrow.get_array_memory_size() < unselected.len(),
             "filtered export retained unselected payload: {} bytes",

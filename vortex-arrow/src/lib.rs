@@ -33,6 +33,8 @@ mod null_buffer;
 mod run_end_import;
 mod scalar;
 mod session;
+#[cfg(test)]
+pub(crate) mod test_util;
 mod uuid;
 
 pub use convert::IntoVortexArray;

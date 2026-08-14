@@ -114,12 +114,16 @@ where
                     rhs,
                 );
             }
-            // `unchecked_unpack_cmp` fills the mask words at the value level (LSB-first bit
-            // positions), while `untranspose_bits` permutes their *memory bytes* assuming
-            // little-endian words. On big-endian hosts, present the words as little-endian
-            // bytes and restore the output afterwards.
+            // `unchecked_unpack_cmp` fills one lane word of the *physical* width per lane at
+            // the value level (LSB-first bit positions), while `untranspose_bits` permutes
+            // their memory bytes assuming little-endian layout. On big-endian hosts, present
+            // each lane word's bytes little-endian at the physical width, and read the
+            // byte-scattered output back as native u64 bitmap words afterwards.
             #[cfg(target_endian = "big")]
-            transposed.iter_mut().for_each(|w| *w = w.swap_bytes());
+            lane_words_to_le(
+                &mut transposed,
+                size_of::<<T as PhysicalPType>::Physical>(),
+            );
             untranspose_bits::<<T as PhysicalPType>::Physical>(&transposed, out);
             #[cfg(target_endian = "big")]
             out.iter_mut().for_each(|w| *w = w.swap_bytes());
@@ -149,4 +153,25 @@ where
 
     let validity = array.validity()?.union_nullability(nullability);
     Ok(BoolArray::new(bits.freeze(), validity).into_array())
+}
+
+/// Reverse the bytes of each `lane_bytes`-wide lane word in place, converting the natively
+/// stored comparison mask into the little-endian byte layout `untranspose_bits` permutes.
+#[cfg(target_endian = "big")]
+fn lane_words_to_le(words: &mut [u64; 16], lane_bytes: usize) {
+    const LOW_BYTES: u64 = 0x00FF_00FF_00FF_00FF;
+    const LOW_HALVES: u64 = 0x0000_FFFF_0000_FFFF;
+    for w in words.iter_mut() {
+        let v = *w;
+        *w = match lane_bytes {
+            1 => v,
+            2 => ((v & LOW_BYTES) << 8) | ((v >> 8) & LOW_BYTES),
+            4 => {
+                let v = ((v & LOW_BYTES) << 8) | ((v >> 8) & LOW_BYTES);
+                ((v & LOW_HALVES) << 16) | ((v >> 16) & LOW_HALVES)
+            }
+            8 => v.swap_bytes(),
+            _ => unreachable!("lane width is 1, 2, 4, or 8 bytes"),
+        };
+    }
 }

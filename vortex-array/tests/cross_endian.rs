@@ -8,6 +8,8 @@
 //! little-endian host the big-endian blob exercises the cross-endian buffer swap in
 //! `SerializedArray::decode`, and under big-endian emulation the little-endian blob does.
 
+#![expect(clippy::tests_outside_test_module)]
+
 use std::path::PathBuf;
 
 use vortex_array::ArrayContext;

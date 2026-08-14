@@ -56,7 +56,7 @@ const ROWS: usize = 1024;
 fn golden_table() -> VortexResult<ArrayRef> {
     let ints = PrimitiveArray::from_iter((0..ROWS as i64).map(|i| (i % 100) * 7)).into_array();
     let small = PrimitiveArray::new(
-        vortex_buffer::Buffer::from_iter((0..ROWS as u32).map(|i| i % 16)),
+        vortex_buffer::Buffer::from_iter((0..u32::try_from(ROWS).vortex_expect("small")).map(|i| i % 16)),
         Validity::from_iter((0..ROWS).map(|i| i % 11 != 0)),
     )
     .into_array();

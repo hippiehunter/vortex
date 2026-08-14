@@ -275,12 +275,14 @@ impl ArrowImportVTable for ParquetVariant {
             return Ok(ArrowImport::Unsupported(array));
         }
 
-        let arrow_variant = ArrowVariantArray::try_new(array.as_struct())?;
-        let imported = if dtype.is_nullable() {
-            ParquetVariant::from_arrow_variant_nullable(&arrow_variant, session)?
-        } else {
-            ParquetVariant::from_arrow_variant(&arrow_variant, session)?
-        };
+        let source = array.as_struct();
+        let arrow_variant = ArrowVariantArray::try_new(source)?;
+        let imported = ParquetVariant::from_arrow_variant_with_source_fields(
+            &arrow_variant,
+            source.fields(),
+            dtype.is_nullable(),
+            session,
+        )?;
         Ok(ArrowImport::Imported(imported.into_array()))
     }
 }

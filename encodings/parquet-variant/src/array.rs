@@ -6,6 +6,7 @@ use std::sync::Arc;
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use parquet_variant_compute::VariantArray as ArrowVariantArray;
 use vortex_array::Array;
 use vortex_array::ArrayParts;
@@ -97,25 +98,40 @@ impl ParquetVariant {
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, false, session)
+        Self::from_arrow_variant_impl(arrow_variant, None, false, session)
     }
 
     pub(crate) fn from_arrow_variant_nullable(
         arrow_variant: &ArrowVariantArray,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, true, session)
+        Self::from_arrow_variant_impl(arrow_variant, None, true, session)
+    }
+
+    /// Like [`from_arrow_variant`](Self::from_arrow_variant), but derives child nullability
+    /// from `source_fields` — the fields of the struct the caller built the [`ArrowVariantArray`]
+    /// from. `VariantArray::try_new` rebuilds its inner struct with canonical (nullable)
+    /// shredding fields when the source omits `value`, so the inner fields do not always
+    /// preserve the source schema.
+    pub(crate) fn from_arrow_variant_with_source_fields(
+        arrow_variant: &ArrowVariantArray,
+        source_fields: &Fields,
+        force_nullable: bool,
+        session: &ArrowSession,
+    ) -> VortexResult<ArrayRef> {
+        Self::from_arrow_variant_impl(arrow_variant, Some(source_fields), force_nullable, session)
     }
 
     fn from_arrow_variant_impl(
         arrow_variant: &ArrowVariantArray,
+        source_fields: Option<&Fields>,
         force_nullable: bool,
         session: &ArrowSession,
     ) -> VortexResult<ArrayRef> {
-        let storage = arrow_variant.inner();
+        let storage_fields = source_fields.unwrap_or_else(|| arrow_variant.inner().fields());
         let mut value_nullable = false;
         let mut typed_value_nullable = false;
-        for field in storage.fields() {
+        for field in storage_fields {
             match field.name().as_str() {
                 "value" => value_nullable = field.is_nullable(),
                 "typed_value" => typed_value_nullable = field.is_nullable(),
@@ -137,15 +153,19 @@ impl ParquetVariant {
                 Validity::NonNullable
             });
         let metadata = session
-            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
 
-        let value = arrow_variant
-            .value_field()
-            .map(|v| session.from_arrow_array(ArrowArrayRef::clone(v), value_nullable))
-            .transpose()?;
+        // parquet-variant 59 always models a `value` column, synthesizing an all-null one for
+        // shredded groups that omit it. An all-null `value` beside a `typed_value` is
+        // spec-equivalent to an absent one, so import it as absent and keep the leaner form.
+        let value_column = arrow_variant.value_column();
+        let value = (arrow_variant.typed_value_column().is_none()
+            || value_column.null_count() != value_column.len())
+        .then(|| session.from_arrow_array(ArrowArrayRef::clone(value_column), value_nullable))
+        .transpose()?;
 
         let typed_value = arrow_variant
-            .typed_value_field()
+            .typed_value_column()
             .map(|tv| session.from_arrow_array(ArrowArrayRef::clone(tv), typed_value_nullable))
             .transpose()?;
         ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
@@ -707,7 +727,15 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant, &SESSION.arrow())?;
+        // `VariantArray::try_new` rebuilds a value-less struct with canonical (nullable)
+        // fields, so storage-preserving imports must pass the source fields explicitly, as
+        // the arrow import plugin does.
+        let vortex_arr = ParquetVariant::from_arrow_variant_with_source_fields(
+            &arrow_variant,
+            struct_array.fields(),
+            false,
+            &SESSION.arrow(),
+        )?;
         let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant array"))?;

@@ -841,17 +841,21 @@ mod tests {
 
         let metadata = SESSION
             .arrow()
-            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_field()), false)?;
-        let value = arrow_variant
-            .value_field()
-            .map(|value| {
-                SESSION
-                    .arrow()
-                    .from_arrow_array(ArrowArrayRef::clone(value), value_nullable)
-            })
-            .transpose()?;
+            .from_arrow_array(ArrowArrayRef::clone(arrow_variant.metadata_column()), false)?;
+        // parquet-variant 59 always models a `value` column, synthesizing an all-null one for
+        // shredded groups that omit it. An all-null `value` beside a `typed_value` is
+        // spec-equivalent to an absent one, so import it as absent and keep the leaner form.
+        let value_column = arrow_variant.value_column();
+        let value = (arrow_variant.typed_value_column().is_none()
+            || value_column.null_count() != value_column.len())
+        .then(|| {
+            SESSION
+                .arrow()
+                .from_arrow_array(ArrowArrayRef::clone(value_column), value_nullable)
+        })
+        .transpose()?;
         let typed_value = arrow_variant
-            .typed_value_field()
+            .typed_value_column()
             .map(|typed_value| {
                 SESSION
                     .arrow()

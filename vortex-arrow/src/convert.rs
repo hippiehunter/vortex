@@ -391,9 +391,19 @@ pub fn from_arrow_byte_view<T: ByteViewType>(
         dt => vortex_panic!("Invalid data type for ByteViewArray: {dt}"),
     };
 
+    // Arrow views are u128 *values* (length in the low 32 bits), which coincide with the
+    // view struct's memory layout only on little-endian hosts; big-endian hosts rebuild
+    // each view's native-endian fields from the value.
+    #[cfg(target_endian = "little")]
     let views_buffer = Buffer::from_byte_buffer(
         Buffer::from_arrow_scalar_buffer(value.views().clone()).into_byte_buffer(),
     );
+    #[cfg(target_endian = "big")]
+    let views_buffer = value
+        .views()
+        .iter()
+        .map(|v| vortex_array::arrays::varbinview::BinaryView::from_le_u128(*v))
+        .collect::<Buffer<_>>();
 
     // SAFETY: arrow-rs ByteViewArray already checks the same invariants, we inherit those
     //  guarantees by zero-copy constructing from one.

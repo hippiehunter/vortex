@@ -22,8 +22,20 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
     array: &VarBinViewArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    // Arrow views are u128 *values* (length in the low 32 bits), which coincide with the
+    // view struct's memory layout only on little-endian hosts; big-endian hosts recompose
+    // each view into the value convention.
+    #[cfg(target_endian = "little")]
     let views =
         ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
+    #[cfg(target_endian = "big")]
+    let views = ScalarBuffer::<u128>::from(
+        array
+            .views()
+            .iter()
+            .map(|v| v.to_le_u128())
+            .collect::<Vec<_>>(),
+    );
     let buffers: Vec<_> = array
         .data_buffers()
         .iter()

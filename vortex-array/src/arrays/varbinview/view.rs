@@ -288,6 +288,68 @@ impl BinaryView {
         // SAFETY: binary view always safe to read as u128 LE bytes
         unsafe { u128::from_le_bytes(self.le_bytes) }
     }
+
+    /// Returns the view as the `u128` *value* used by Apache Arrow view arrays, whose low 32
+    /// bits hold the length.
+    ///
+    /// On little-endian hosts this equals the view's memory representation ([`as_u128`]); on
+    /// big-endian hosts the native-endian fields are recomposed into the value convention.
+    ///
+    /// [`as_u128`]: Self::as_u128
+    pub fn to_le_u128(&self) -> u128 {
+        #[cfg(target_endian = "little")]
+        {
+            self.as_u128()
+        }
+        #[cfg(target_endian = "big")]
+        {
+            let mut bytes = [0u8; 16];
+            if self.is_inlined() {
+                let inlined = self.as_inlined();
+                bytes[0..4].copy_from_slice(&inlined.size.to_le_bytes());
+                bytes[4..16].copy_from_slice(&inlined.data);
+            } else {
+                let r = self.as_view();
+                bytes[0..4].copy_from_slice(&r.size.to_le_bytes());
+                bytes[4..8].copy_from_slice(&r.prefix);
+                bytes[8..12].copy_from_slice(&r.buffer_index.to_le_bytes());
+                bytes[12..16].copy_from_slice(&r.offset.to_le_bytes());
+            }
+            u128::from_le_bytes(bytes)
+        }
+    }
+
+    /// Builds a view from the `u128` *value* used by Apache Arrow view arrays; the inverse of
+    /// [`to_le_u128`](Self::to_le_u128).
+    pub fn from_le_u128(value: u128) -> Self {
+        #[cfg(target_endian = "little")]
+        {
+            Self::from(value)
+        }
+        #[cfg(target_endian = "big")]
+        {
+            let bytes = value.to_le_bytes();
+            let size = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            if size as usize <= Self::MAX_INLINED_SIZE {
+                let mut data = [0u8; Self::MAX_INLINED_SIZE];
+                data.copy_from_slice(&bytes[4..16]);
+                Self {
+                    inlined: Inlined { size, data },
+                }
+            } else {
+                Self {
+                    _ref: Ref {
+                        size,
+                        prefix: [bytes[4], bytes[5], bytes[6], bytes[7]],
+                        buffer_index: u32::from_le_bytes([
+                            bytes[8], bytes[9], bytes[10], bytes[11],
+                        ]),
+                        offset: u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+                    },
+                }
+            }
+        }
+    }
 }
 
 impl From<u128> for BinaryView {

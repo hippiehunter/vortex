@@ -468,7 +468,14 @@ pub trait ParquetVariantArrayExt:
         let mut fields = Vec::with_capacity(3);
         let mut arrays: Vec<ArrowArrayRef> = Vec::with_capacity(3);
 
-        let metadata_arrow = metadata.clone().execute_arrow(None, ctx)?;
+        // Arrow view arrays cannot be read through arrow's own accessors on big-endian hosts
+        // (`GenericByteViewArray::value` slices the stored u128's raw bytes), so export the
+        // variant binary columns as offset-based `Binary` there; parquet-variant accepts any
+        // binary-like column and reads `Binary` portably.
+        let binary_target = cfg!(target_endian = "big").then_some(arrow_schema::DataType::Binary);
+        let metadata_arrow = metadata
+            .clone()
+            .execute_arrow(binary_target.as_ref(), ctx)?;
         fields.push(Arc::new(Field::new(
             "metadata",
             metadata_arrow.data_type().clone(),
@@ -477,7 +484,7 @@ pub trait ParquetVariantArrayExt:
         arrays.push(metadata_arrow);
 
         if let Some(value) = self.value() {
-            let value_arrow = value.clone().execute_arrow(None, ctx)?;
+            let value_arrow = value.clone().execute_arrow(binary_target.as_ref(), ctx)?;
             fields.push(Arc::new(Field::new(
                 "value",
                 value_arrow.data_type().clone(),

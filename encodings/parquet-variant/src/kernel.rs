@@ -153,7 +153,18 @@ fn json_strings_to_variant(
 ) -> VortexResult<ArrayRef> {
     let nullable = parent.dtype().is_nullable();
     let session = ctx.session().clone();
-    let arrow_strings = session.arrow().execute_arrow(strings, None, ctx)?;
+    // See `to_arrow`: string view arrays are unreadable through arrow's accessors on
+    // big-endian hosts, so hand `json_to_variant` offset-based strings there.
+    let strings_target = cfg!(target_endian = "big").then(|| {
+        FieldRef::from(Arc::new(arrow_schema::Field::new(
+            "json",
+            arrow_schema::DataType::Utf8,
+            strings.dtype().is_nullable(),
+        )))
+    });
+    let arrow_strings = session
+        .arrow()
+        .execute_arrow(strings, strings_target.as_deref(), ctx)?;
     // Any row that fails to parse as JSON fails the whole conversion.
     let arrow_variant = parquet_variant_compute::json_to_variant(&arrow_strings)?;
 

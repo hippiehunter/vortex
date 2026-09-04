@@ -54,23 +54,24 @@ use crate::sequence::SequentialStreamExt;
 
 /// Constraints for dictionary layout encoding.
 ///
-/// Note that [`max_len`](Self::max_len) is limited to `u16` (65,535 entries) by design. Since
-/// layout chunks are typically ~8k elements, having more than 64k unique values in a dictionary
-/// means dictionary encoding provides little compression benefit. If a column has very high
-/// cardinality, the fallback encoding strategy should be used instead.
+/// The default [`max_len`](Self::max_len) is 65,535 entries: layout chunks are typically ~8k
+/// elements, so beyond 64k unique values dictionary encoding provides little compression benefit
+/// and the fallback encoding strategy is usually better. Readers that execute directly on
+/// dictionary codes (grouping, distinct counting, per-value predicate evaluation) may raise the
+/// limit so that one dictionary spans a whole file column; the codes then widen to `u32`.
 #[derive(Clone)]
 pub struct DictLayoutConstraints {
     /// Maximum size of the dictionary in bytes.
     pub max_bytes: usize,
-    /// Maximum dictionary length. Limited to `u16` because dictionaries with more than 64k unique
-    /// values provide diminishing compression returns given typical chunk sizes (~8k elements).
+    /// Maximum dictionary length.
     ///
     /// The codes dtype is determined upfront from this constraint:
     /// - [`PType::U8`] when max_len <= 255
-    /// - [`PType::U16`] when max_len > 255
+    /// - [`PType::U16`] when max_len <= 65,535
+    /// - [`PType::U32`] otherwise
     ///
     /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
-    pub max_len: u16,
+    pub max_len: u32,
 }
 
 impl From<DictLayoutConstraints> for DictConstraints {
@@ -86,14 +87,29 @@ impl Default for DictLayoutConstraints {
     fn default() -> Self {
         Self {
             max_bytes: 1024 * 1024,
-            max_len: u16::MAX,
+            max_len: u16::MAX as u32,
         }
     }
+}
+
+/// How [`DictStrategy`] decides whether a column stream is dictionary encoded.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DictProbe {
+    /// Compress the first chunk with the probe compressor and dictionary encode the stream only
+    /// if that sample chose a dictionary. This is the default.
+    #[default]
+    FirstChunk,
+    /// Always dictionary encode a supported stream. The caller has already decided, typically
+    /// because its readers execute on codes rather than on decoded values.
+    Always,
+    /// Never dictionary encode; write the fallback strategy directly.
+    Never,
 }
 
 #[derive(Clone, Default)]
 pub struct DictLayoutOptions {
     pub constraints: DictLayoutConstraints,
+    pub probe: DictProbe,
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
@@ -153,9 +169,11 @@ impl LayoutStrategy for DictStrategy {
         let (stream, first_chunk) = peek_first_chunk(stream).await?;
         let stream = SequentialStreamAdapter::new(dtype.clone(), stream).sendable();
 
-        let should_fallback = match first_chunk {
-            None => true, // empty stream
-            Some(chunk) => {
+        let should_fallback = match (options.probe, first_chunk) {
+            (_, None) => true, // empty stream
+            (DictProbe::Never, Some(_)) => true,
+            (DictProbe::Always, Some(_)) => false,
+            (DictProbe::FirstChunk, Some(chunk)) => {
                 let mut exec_ctx = session.create_execution_ctx();
                 let compressed = self
                     .probe_compressor
@@ -695,5 +713,55 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_uses_u32_beyond_u16_dictionaries() {
+        let constraints = DictConstraints {
+            max_bytes: 64 * 1024 * 1024,
+            max_len: 70_000,
+        };
+
+        let values: Vec<String> = (0..66_000).map(|i| format!("value_{i}")).collect();
+        let arr =
+            VarBinArray::from(values.iter().map(|s| s.as_str()).collect::<Vec<_>>()).into_array();
+
+        let mut pointer = SequenceId::root();
+        let input_stream = SequentialStreamAdapter::new(
+            arr.dtype().clone(),
+            futures::stream::once(async move { Ok((pointer.advance(), arr)) }),
+        )
+        .sendable();
+
+        let dict_stream =
+            dict_encode_stream(input_stream, constraints, SESSION.create_execution_ctx());
+
+        let mut transformer = DictionaryTransformer::new(dict_stream);
+
+        let (codes_stream, values_fut) = transformer
+            .next()
+            .await
+            .expect("expected at least one dictionary run");
+
+        assert_eq!(
+            codes_stream.dtype(),
+            &DType::Primitive(PType::U32, NonNullable),
+            "codes stream should use U32 dtype for dictionaries with >65535 entries"
+        );
+        // The transformer forwards codes into the run's bounded channel only while it is
+        // polled, so drive it to exhaustion while draining the codes stream.
+        let mut codes_stream = codes_stream;
+        let drain_codes = async {
+            let mut total = 0usize;
+            while let Some(chunk) = codes_stream.next().await {
+                total += chunk.expect("codes chunk").1.len();
+            }
+            total
+        };
+        let drive_transformer = async { while transformer.next().await.is_some() {} };
+        let (total, ()) = futures::join!(drain_codes, drive_transformer);
+        assert_eq!(total, 66_000);
+        let (_, values) = values_fut.await.expect("values");
+        assert_eq!(values.len(), 66_000, "one dictionary must span every value");
     }
 }

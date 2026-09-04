@@ -19,6 +19,7 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::list::writer::ListLayoutStrategy;
@@ -62,6 +63,7 @@ pub struct WriteStrategyBuilder {
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
     probe_compressor: Option<Arc<dyn CompressorPlugin>>,
+    dict_options: DictLayoutOptions,
     /// Whether to write list fields using [`ListLayoutStrategy`].
     ///
     /// [`ListLayoutStrategy`]: vortex_layout::layouts::list::writer::ListLayoutStrategy
@@ -80,6 +82,7 @@ impl Default for WriteStrategyBuilder {
             allow_encodings: None,
             flat_strategy: None,
             probe_compressor: None,
+            dict_options: DictLayoutOptions::default(),
             use_list_layout: use_experimental_list_layout(),
         }
     }
@@ -164,6 +167,18 @@ impl WriteStrategyBuilder {
     /// compressor is already fully configured and should not be modified by the builder.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.compressor = CompressorConfig::Opaque(Arc::new(compressor));
+        self
+    }
+
+    /// Override the dictionary layout constraints and probe policy.
+    ///
+    /// Raising [`DictLayoutConstraints::max_len`] above 65,535 widens codes to `u32` so one
+    /// dictionary can span a whole column; [`DictProbe::Always`] skips the first-chunk probe.
+    ///
+    /// [`DictLayoutConstraints::max_len`]: vortex_layout::layouts::dict::writer::DictLayoutConstraints::max_len
+    /// [`DictProbe::Always`]: vortex_layout::layouts::dict::writer::DictProbe::Always
+    pub fn with_dict_options(mut self, options: DictLayoutOptions) -> Self {
+        self.dict_options = options;
         self
     }
 
@@ -255,7 +270,7 @@ impl WriteStrategyBuilder {
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
-            Default::default(),
+            self.dict_options,
             probe_compressor,
         );
 

@@ -3,10 +3,10 @@
 
 //! Flat `u8` transition table DFA for contains matching (`LIKE '%needle%'`).
 //!
-//! Uses an escape-sentinel strategy: the FSST escape code maps to a sentinel
-//! state, and the next literal byte is looked up in a separate byte-level
-//! transition table.
-//! This is to support needles up to u8::MAX long.
+//! Short needles (at most 127 bytes) fold the "previous code was ESCAPE"
+//! condition into the `u8` state space, so every compressed byte is a single
+//! dependent table lookup with no escape branch. Longer needles retain the
+//! compact escape-sentinel strategy, which keeps the public needle limit.
 //!
 //! ## Construction (needle = `"aba"`, symbols = `[0:"ab", 1:"ba"]`)
 //!
@@ -62,12 +62,6 @@
 //!
 //! When the scanner sees sentinel (4), it reads the next byte and looks it
 //! up in the byte-level escape table (from step 1).
-//!
-//! TODO(joe): for short needles (≤7 bytes), a branchless escape-folded DFA
-//! with hierarchical 4-byte composition is ~2x faster. For needles ≤127 bytes,
-//! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
-//! See commit 7faf9f36f for those implementations.
-
 use fsst::Symbol;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -79,15 +73,25 @@ use super::kmp_byte_transitions;
 
 /// Flat `u8` transition table DFA for contains matching.
 ///
-/// The escape code maps to a sentinel state; the next literal byte is looked
-/// up in a separate byte-level escape table.
+/// The backend is selected solely from the pattern length; both execute the
+/// same byte-level KMP automaton over decoded FSST symbols.
 pub(crate) struct FlatContainsDfa {
-    /// `transitions[state * 256 + byte]` -> next state.
-    transitions: Vec<u8>,
-    /// `escape_transitions[state * 256 + byte]` -> next state for escaped bytes.
-    escape_transitions: Vec<u8>,
+    transitions: ContainsTransitions,
     accept_state: u8,
-    sentinel: u8,
+}
+
+enum ContainsTransitions {
+    /// Short needles have enough `u8` state space to encode "the previous
+    /// code was ESCAPE" directly. Every compressed byte is then one dependent
+    /// table lookup with no unpredictable escape branch.
+    EscapeFolded(Vec<u8>),
+    /// Long needles retain the compact sentinel representation so the public
+    /// 254-byte limit is unchanged.
+    Sentinel {
+        symbols: Vec<u8>,
+        escaped_bytes: Vec<u8>,
+        sentinel: u8,
+    },
 }
 
 impl FlatContainsDfa {
@@ -110,35 +114,88 @@ impl FlatContainsDfa {
         let accept_state = u8::try_from(needle.len())
             .vortex_expect("FlatContainsDfa: accept state must fit into u8");
         let n_states = accept_state + 1;
-        let sentinel = n_states;
-
         let byte_table = kmp_byte_transitions(needle);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
-        let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
+
+        let transitions = if needle.len() <= 127 {
+            let pending_base = n_states;
+            let total_states = usize::from(n_states) + usize::from(accept_state);
+            let mut folded = build_fused_table(
+                &sym_trans,
+                symbols.len(),
+                n_states,
+                |state| {
+                    if state == accept_state {
+                        accept_state
+                    } else {
+                        pending_base + state
+                    }
+                },
+                0,
+            );
+            folded.resize(total_states * 256, 0);
+            for state in 0..accept_state {
+                let source = usize::from(state) * 256;
+                let target = usize::from(pending_base + state) * 256;
+                folded[target..target + 256].copy_from_slice(&byte_table[source..source + 256]);
+            }
+            ContainsTransitions::EscapeFolded(folded)
+        } else {
+            let sentinel = n_states;
+            ContainsTransitions::Sentinel {
+                symbols: build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0),
+                escaped_bytes: byte_table,
+                sentinel,
+            }
+        };
 
         Ok(Self {
             transitions,
-            escape_transitions: byte_table,
             accept_state,
-            sentinel,
         })
     }
 
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        match &self.transitions {
+            ContainsTransitions::EscapeFolded(transitions) => {
+                let mut state = 0u8;
+                for &code in codes {
+                    state = transitions[usize::from(state) * 256 + usize::from(code)];
+                    if state == self.accept_state {
+                        return true;
+                    }
+                }
+                false
+            }
+            ContainsTransitions::Sentinel {
+                symbols,
+                escaped_bytes,
+                sentinel,
+            } => self.matches_sentinel(codes, symbols, escaped_bytes, *sentinel),
+        }
+    }
+
+    fn matches_sentinel(
+        &self,
+        codes: &[u8],
+        transitions: &[u8],
+        escape_transitions: &[u8],
+        sentinel: u8,
+    ) -> bool {
         let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
             let code = codes[pos];
             pos += 1;
-            let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
-            if next == self.sentinel {
+            let next = transitions[usize::from(state) * 256 + usize::from(code)];
+            if next == sentinel {
                 if pos >= codes.len() {
                     return false;
                 }
                 let b = codes[pos];
                 pos += 1;
-                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
+                state = escape_transitions[usize::from(state) * 256 + usize::from(b)];
             } else {
                 state = next;
             }

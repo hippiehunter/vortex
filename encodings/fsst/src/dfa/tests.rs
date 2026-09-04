@@ -252,6 +252,50 @@ fn test_contains_pushdown_len_254_with_escapes() {
     assert!(!matcher.matches(&escaped(&mismatch)));
 }
 
+/// Needles up to 127 bytes use the escape-folded table; longer needles keep the sentinel table.
+/// Both must agree with byte-level matching on escaped and symbol-spanning inputs at the boundary.
+#[rstest]
+#[case(126)]
+#[case(127)]
+#[case(128)]
+#[case(129)]
+fn test_contains_folded_and_sentinel_agree_at_boundary(#[case] needle_len: usize) {
+    // Code 1 expands to "zaa", so a haystack beginning with that symbol starts the needle
+    // ("aab...") inside a symbol expansion.
+    let symbols = vec![sym(b"ab"), sym(b"zaa"), sym(b"a")];
+    let lengths = vec![2u8, 3, 1];
+    let needle: Vec<u8> = (0..needle_len)
+        .map(|i| if i % 3 == 2 { b'b' } else { b'a' })
+        .collect();
+    let pattern = [b"%".as_slice(), &needle, b"%".as_slice()].concat();
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, &pattern)
+        .unwrap()
+        .unwrap();
+
+    // Fully escaped haystack that contains the needle after a prefix.
+    let mut hay = b"zz".to_vec();
+    hay.extend_from_slice(&needle);
+    hay.extend_from_slice(b"zz");
+    assert!(matcher.matches(&escaped(&hay)));
+
+    // Haystack where the needle starts inside a symbol: "zaa" then the escaped remainder.
+    let mut codes = vec![1u8];
+    codes.extend(escaped(&needle[2..]));
+    assert!(matcher.matches(&codes));
+
+    // One byte off in the middle must not match.
+    let mut mismatch = needle.clone();
+    mismatch[needle_len / 2] = b'z';
+    assert!(!matcher.matches(&escaped(&mismatch)));
+
+    // A literal 0xFF byte (the escape code value) inside the haystack must not confuse either table.
+    let mut with_ff = vec![0xFFu8];
+    with_ff.extend_from_slice(&needle);
+    assert!(matcher.matches(&escaped(&with_ff)));
+    let only_ff = vec![0xFFu8; needle_len];
+    assert!(!matcher.matches(&escaped(&only_ff)));
+}
+
 #[test]
 fn test_contains_pushdown_rejects_len_255() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN + 1);
